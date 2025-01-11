@@ -25,8 +25,21 @@ $STD apt-get install -y \
   mariadb-server \
   libmariadb3 \
   libmariadb-dev \
+  mariadb-connector-c \
   python3 \
-  python3-pip
+  python3-pip \
+  valkey \
+  gcc \
+  libc-dev \
+  make \
+  pcre-dev \
+  zlib-dev \
+  g++ \
+  linux-headers \
+  libmagic \
+  libpq \
+  p7zip \
+  tzdata
 msg_ok "Installed Dependencies"
 
 msg_info "Setting up Node.js Repository"
@@ -49,6 +62,26 @@ ln -s /usr/bin/python3 /usr/bin/python
 ln -s /usr/local/bin/gunicorn /usr/bin/gunicorn
 msg_ok "Installed Python Packages"
 
+msg_info "Installing RAHasher"
+wget -q https://github.com/RetroAchievements/RALibretro/releases/download/1.8.0/RAHasher-x64-Linux-1.8.0.zip -O - | bsdtar -xvf- -C /tmp
+mv /tmp/bin64/RAHasher /usr/bin/RAHasher
+rm -rf /tmp/bin64
+msg_ok "Installed RAHasher"
+
+msg_info "Building nginx"
+git clone https://github.com/evanmiller/mod_zip.git /tmp/mod_zip
+git clone --branch "release-1.27.1" --depth 1 https://github.com/nginx/nginx.git /tmp/nginx
+mv mod_zip-* /tmp/mod_zip
+cd /tmp/mod_zip
+git checkout 8e65b82c82c7890f67a6107271c127e9881b6313
+cd ../nginx
+./auto/configure --with-compat --add-dynamic-module=../mod_zip
+make -f ./objs/Makefile modules
+chmod 644 ./objs/ngx_http_zip_module.so
+mv ./objs/ngx_http_zip_module.so /usr/lib/nginx/modules
+rm -rf /tmp/mod_zip /tmp/nginx
+msg_ok "Built nginx"
+
 msg_info "Setting up Database"
 DB_NAME=romm
 DB_USER=romm
@@ -67,7 +100,7 @@ msg_ok "Set up database"
 RELEASE=$(curl -s https://api.github.com/repos/rommapp/romm/tags | jq --raw-output '.[0].name')
 msg_info "Installing RomM v$RELEASE"
 wget -q https://codeload.github.com/rommapp/romm/tar.gz/refs/tags/${RELEASE} -O - | tar -xz
-mv rommapp-romm-* /opt/romm
+mv romm-* /opt/romm
 mkdir -p /opt/romm/server-files
 chown -R root:root /opt/romm/server-files
 chmod 755 /opt/romm/server-files
@@ -94,11 +127,24 @@ $STD pip install --no-cache-dir -r requirements.txt
 $STD pip install .
 
 cd /opt/romm/frontend
-$STD npm install
+$STD npm ci
+$STD npm run build
+cp -r /opt/romm/frontend/dist/ /var/www/html
+cp -r /opt/romm/frontend/assets/dashboard-icons /var/www/html/assets/dashboard-icons
+cp -r /opt/romm/frontend/assets/default /var/www/html/assets/default
+cp -r /opt/romm/frontend/assets/platforms /var/www/html/assets/platforms
+cp -r /opt/romm/frontend/assets/scrappers /var/www/html/assets/scrappers
+cp -r /opt/romm/frontend/assets/webrcade/feed /var/www/html/assets/webrcade/feed
+cp -r /opt/romm/frontend/assets/emulatorjs /var/www/html/assets/emulatorjs
+cp -r /opt/romm/frontend/assets/ruffle /var/www/html/assets/ruffle
 
-mkdir assets/romm
-ln -s ./opt/romm-data/resources assets/romm/resources
-ln -s /opt/romm-data/assets assets/romm/assets
+mkdir -p /var/www/html/assets/romm
+ln -s /opt/romm-data/resources /var/www/html/assets/romm/resources
+ln -s /opt/romm-data/assets /var/www/html/assets/romm/assets
+
+# Setup init script and config files
+COPY /opt/romm/docker/nginx/js/ /etc/nginx/js/
+COPY /opt/romm/docker/nginx/default.conf /etc/nginx/nginx.conf
 msg_ok "Installed RomM"
 
 msg_info "Creating Service"
@@ -111,16 +157,16 @@ After=network.target
 Type=simple
 User=root
 Group=root
-WorkingDirectory=/opt/romm/backend
+WorkingDirectory=/opt/romm
 EnvironmentFile=/opt/romm/.env
-ExecStart=
+ExecStart=/opt/romm/docker/init_scripts/init
 Restart=always
 RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
-systemctl enable -q --now actualbudget.service
+systemctl enable -q --now romm.service
 msg_ok "Created Service"
 
 motd_ssh
@@ -129,4 +175,5 @@ customize
 msg_info "Cleaning up"
 $STD apt-get -y autoremove
 $STD apt-get -y autoclean
+$STD apt-get -y clean
 msg_ok "Cleaned"
