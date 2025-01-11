@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 source <(curl -s https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func)
 # Copyright (c) 2021-2025 tteck
-# Author: arcaneasada (gantoine)
+# Author: gantoine
 # License: MIT | https://github.com/community-scripts/ProxmoxVE/raw/main/LICENSE
 # Source: https://romm.app
 
@@ -49,8 +49,11 @@ function update_script() {
     mv /opt/romm_bak/.env /opt/romm
     mv /opt/romm_bak/server-files /opt/romm/server-files
     cd /opt/romm/backend
-    poetry install --sync &>/dev/null
-    cd ../frontend
+    poetry install --only=main --no-ansi --no-interaction --no-root &>/dev/null
+    poetry export --without-hashes --without-urls -f requirements.txt --output requirements.txt &>/dev/null
+    pip install --no-cache-dir -r requirements.txt &>/dev/null
+    pip install . &>/dev/null
+    cd /opt/romm/frontend
     npm install &>/dev/null
     systemctl start romm
     msg_ok "Successfully Updated ${APP} to ${RELEASE}"
